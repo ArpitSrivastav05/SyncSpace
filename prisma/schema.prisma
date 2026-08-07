@@ -1,0 +1,251 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum NotificationType {
+  MENTION
+  ASSIGNMENT
+  DOCUMENT_CHANGE
+  BOARD_CHANGE
+}
+
+model User {
+  id        String   @id // Clerk user ID — Clerk is the source of truth for identity, we mirror it here
+  email     String   @unique
+  name      String
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships     WorkspaceMembership[]
+  createdProjects Project[]             @relation("ProjectCreator")
+  assignedTasks   Task[]                @relation("TaskAssignee")
+  createdTasks    Task[]                @relation("TaskCreator")
+  messages        Message[]
+  notifications   Notification[]
+  sentInvites     WorkspaceInvite[]     @relation("InviteSender")
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships   WorkspaceMembership[]
+  invites       WorkspaceInvite[]
+  projects      Project[]
+  notifications Notification[]
+}
+
+// Workspace-level roles only (no per-project overrides in MVP — see RBAC doc).
+// canDeleteProjects/canDeleteBoards are the delegated permission flags an
+// Admin or Owner can grant to a Member without a full role promotion.
+model WorkspaceMembership {
+  id                String        @id @default(uuid())
+  workspaceId       String
+  userId            String
+  role              WorkspaceRole @default(MEMBER)
+  canDeleteProjects Boolean       @default(false)
+  canDeleteBoards   Boolean       @default(false)
+  joinedAt          DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+}
+
+model WorkspaceInvite {
+  id          String        @id @default(uuid())
+  workspaceId String
+  email       String
+  role        WorkspaceRole @default(MEMBER)
+  token       String        @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User      @relation("InviteSender", fields: [invitedById], references: [id])
+
+  @@index([workspaceId])
+  @@index([email])
+}
+
+// Hierarchy (revised, Phase 4): many Boards, many Documents, many Channels
+// per Project — full nested hierarchy, not the earlier one-per-project draft.
+model Project {
+  id          String    @id @default(uuid())
+  workspaceId String
+  name        String
+  description String?
+  createdById String
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User       @relation("ProjectCreator", fields: [createdById], references: [id])
+  boards    Board[]
+  documents Document[]
+  channels  Channel[]
+
+  @@index([workspaceId])
+}
+
+model Board {
+  id          String   @id @default(uuid())
+  workspaceId String // denormalized — see database-design.md, "Denormalizing workspaceId"
+  projectId   String
+  name        String   @default("Board")
+  position    Int // ordering for multiple boards within a project
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  columns BoardColumn[]
+
+  @@index([workspaceId])
+  @@index([projectId, position])
+}
+
+model BoardColumn {
+  id        String   @id @default(uuid())
+  boardId   String
+  name      String
+  position  Int
+  createdAt DateTime @default(now())
+
+  board Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([boardId, position])
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model Task {
+  id            String       @id @default(uuid())
+  workspaceId   String // denormalized
+  boardColumnId String
+  title         String
+  description   String?
+  assigneeId    String?
+  createdById   String
+  dueDate       DateTime?
+  priority      TaskPriority @default(MEDIUM)
+  position      Int
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  boardColumn BoardColumn @relation(fields: [boardColumnId], references: [id], onDelete: Cascade)
+  assignee    User?       @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy   User        @relation("TaskCreator", fields: [createdById], references: [id])
+
+  @@index([workspaceId])
+  @@index([boardColumnId, position])
+}
+
+// snapshotBytes holds the latest compacted Yjs state. DocumentUpdate rows
+// are the update-log (Option B, confirmed) — individual CRDT deltas since
+// the last snapshot, compacted periodically. See architecture.md Section 3.
+model Document {
+  id            String    @id @default(uuid())
+  workspaceId   String // denormalized
+  projectId     String
+  title         String
+  snapshotBytes Bytes?
+  snapshotAt    DateTime?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  updates DocumentUpdate[]
+
+  @@index([workspaceId])
+  @@index([projectId])
+}
+
+model DocumentUpdate {
+  id          String   @id @default(uuid())
+  documentId  String
+  updateBytes Bytes
+  clientId    String
+  createdAt   DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, createdAt])
+}
+
+model Channel {
+  id          String   @id @default(uuid())
+  workspaceId String // denormalized
+  projectId   String
+  name        String   @default("general")
+  position    Int // ordering for multiple channels within a project
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([workspaceId])
+  @@index([projectId, position])
+}
+
+model Message {
+  id              String    @id @default(uuid())
+  workspaceId     String // denormalized
+  channelId       String
+  authorId        String
+  content         String
+  parentMessageId String?
+  editedAt        DateTime?
+  deletedAt       DateTime? // soft delete — supports moderation without losing thread integrity
+  createdAt       DateTime  @default(now())
+
+  channel       Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author        User      @relation(fields: [authorId], references: [id])
+  parentMessage Message?  @relation("MessageThread", fields: [parentMessageId], references: [id])
+  replies       Message[] @relation("MessageThread")
+
+  @@index([workspaceId])
+  @@index([channelId, createdAt])
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  workspaceId String
+  userId      String
+  type        NotificationType
+  payload     Json
+  readAt      DateTime?
+  createdAt   DateTime         @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([workspaceId])
+}
