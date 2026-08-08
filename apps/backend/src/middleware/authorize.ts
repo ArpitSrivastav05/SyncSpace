@@ -258,9 +258,7 @@ export function can(action: Action, context: AuthorizationContext): boolean {
  */
 export function requirePermission(action: Action) {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    const membership = (req as any)["membership"] as
-      | WorkspaceMembership
-      | undefined;
+    const membership = req.membership;
 
     if (!membership) {
       next(

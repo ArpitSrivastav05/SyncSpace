@@ -74,6 +74,9 @@ This document identifies the highest-leverage technical risks that must be resol
 - All reads/writes go through a shared repository helper that injects `workspaceId` from the authenticated session automatically — individual route handlers must not be trusted to remember to filter by workspace manually.
 - A test suite specifically attempts cross-workspace access (Workspace A's authenticated user requesting Workspace B's project/doc/task IDs) and asserts 403/404 across every entity type. This test suite is a Phase 5 exit criterion, not optional polish.
 
+**Known Limitations (Phase 5):**
+- **Admin Operations TOCTOU:** The guardrail that prevents demoting/removing the last workspace Owner is subject to a time-of-check-to-time-of-use (TOCTOU) race condition if multiple concurrent requests attempt to remove/demote the final two Owners simultaneously. Given the extreme rarity of concurrent admin-level role changes on the same workspace, this race is accepted for MVP rather than imposing heavy serializable locks or Postgres advisory locks on all role changes.
+
 **If wrong:** a single forgotten `.where({ workspaceId })` clause anywhere in the codebase becomes a data breach, not a bug ticket.
 
 ---

@@ -208,7 +208,9 @@ describe("Workspace service (integration)", () => {
       await expect(
         service.changeRole(workspace.id, owner.id, "ADMIN", {
           userId: admin.id,
-          role: "OWNER", // pretend admin is owner for the sake of this test
+          // Verifies the guardrail as a defense-in-depth safety net; not currently reachable via
+          // the authenticated route given the self-role-change and Owner-only restrictions.
+          role: "OWNER",
         })
       ).rejects.toThrow("Cannot demote the last Owner");
     });
@@ -371,6 +373,20 @@ describe("Workspace service (integration)", () => {
       await expect(
         service.acceptInvite(invite.token, newUser)
       ).rejects.toThrow("expired");
+    });
+
+    test("acceptInvite rejects if accepting user email does not match invite email", async () => {
+      const owner = await createTestUser();
+      const maliciousUser = await createTestUser({ email: "attacker@example.com" });
+      const workspace = await service.createWorkspace(owner, { name: "WS" });
+      
+      const invite = await service.createInvite(workspace.id, owner.id, {
+        email: "target@example.com",
+      });
+
+      await expect(
+        service.acceptInvite(invite.token, maliciousUser)
+      ).rejects.toThrow("sent to a different email address");
     });
 
     test("acceptInvite rejects already-accepted invite", async () => {

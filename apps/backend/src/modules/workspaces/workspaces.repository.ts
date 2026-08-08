@@ -117,6 +117,18 @@ export async function markInviteAccepted(id: string) {
   });
 }
 
+export async function countRecentInvites(
+  invitedById: string,
+  since: Date
+): Promise<number> {
+  return prisma.workspaceInvite.count({
+    where: {
+      invitedById,
+      createdAt: { gte: since },
+    },
+  });
+}
+
 // ─── Transaction Helper ──────────────────────────────────────────────────
 
 export { prisma };

@@ -6,6 +6,7 @@ import {
   ForbiddenError,
   GoneError,
   NotFoundError,
+  TooManyRequestsError,
 } from "../../lib/errors.js";
 import { can } from "../../middleware/authorize.js";
 import * as repo from "./workspaces.repository.js";
@@ -130,8 +131,11 @@ export async function changeRole(
     throw new BadRequestError("Cannot change your own role");
   }
 
-  // Admin can only toggle Member↔Admin, validated by can() in route.
-  // But we also need the last-Owner guardrail for demoting an Owner.
+  // Defense-in-depth safety net: last-Owner guardrail for demotion.
+  // Note: This branch is currently unreachable via the API because Admins are blocked
+  // from modifying Owners by `can()`, and Owners are blocked from modifying themselves
+  // by the check above. It is kept here as a robust structural protection against a
+  // zero-Owner workspace in case those preceding rules are ever loosened.
   if (targetMembership.role === "OWNER" && newRole !== "OWNER") {
     const ownerCount = await repo.countOwners(workspaceId);
     if (ownerCount <= 1) {
@@ -186,9 +190,19 @@ export async function createInvite(
   invitedById: string,
   data: { email: string; role?: WorkspaceRole }
 ) {
-  // Check if user is already a member (by email → user lookup).
-  // We can't do this perfectly without a User record (the invitee
-  // might not have signed up yet), but if they have, catch it early.
+  // Interim rate limit (architecture.md §5 Phasing note):
+  // Count this user's invites created in the last hour, reject past 20/hour.
+  // Uses a plain Prisma count() — no Redis dependency.
+  // Replaced by the proper Redis-backed limiter in Phase 7.
+  const INVITE_RATE_LIMIT = 20;
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const recentInviteCount = await repo.countRecentInvites(invitedById, oneHourAgo);
+  if (recentInviteCount >= INVITE_RATE_LIMIT) {
+    throw new TooManyRequestsError(
+      "Invite rate limit exceeded — maximum 20 invites per hour"
+    );
+  }
+
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + INVITE_EXPIRY_DAYS);
@@ -213,6 +227,10 @@ export async function acceptInvite(token: string, user: User) {
 
   if (new Date() > invite.expiresAt) {
     throw new GoneError("Invite has expired");
+  }
+
+  if (user.email.toLowerCase() !== invite.email.toLowerCase()) {
+    throw new ForbiddenError("This invite was sent to a different email address");
   }
 
   // Check if user is already a member.

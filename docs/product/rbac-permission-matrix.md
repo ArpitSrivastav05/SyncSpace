@@ -28,6 +28,7 @@ The open question from the PRD review was: *are permissions per-workspace, per-p
 - A workspace must always have **at least one Owner**. The system must block removing or demoting the last remaining Owner — enforced server-side, not just hidden in the UI.
 - Multiple Owners are allowed (e.g., co-founders), not just a single fixed owner.
 - Admins cannot change or remove an Owner's role — prevents privilege escalation via a compromised or malicious Admin account.
+- Users cannot change their own role — a broad self-block that prevents accidental self-demotion and, combined with the rules above, serves as a robust defense-in-depth against zero-owner states.
 - Workspace deletion is Owner-only and must require explicit confirmation (e.g., typing the workspace name) — this is a UX safeguard on top of the RBAC check, not a substitute for it.
 
 ---
@@ -45,7 +46,7 @@ The open question from the PRD review was: *are permissions per-workspace, per-p
 | Manage billing (post-MVP) | ✅ | ❌ | ❌ |
 | **Members** | | | |
 | View member list | ✅ | ✅ | ✅ |
-| Invite new members | ✅ | ✅ | ❌ |
+| Invite new members | ✅ | ✅ (cannot invite as Owner) | ❌ |
 | Remove a member | ✅ | ✅ (not Owners) | ❌ |
 | Change a member's role | ✅ | 🟡 (Member ↔ Admin only, not Owner) | ❌ |
 | Transfer/grant Ownership | ✅ | ❌ | ❌ |

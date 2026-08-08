@@ -3,15 +3,15 @@ import {
   cleanDatabase,
   disconnectTestDatabase,
   testPrisma,
-} from "./setup.js";
+} from "../setup.js";
 import {
   createTestUser,
   createTestWorkspace,
   createTestMembership,
   createTestProject,
   createTestInvite,
-} from "./helpers.js";
-import { createScopedRepository } from "../lib/scoped-repository.js";
+} from "../helpers.js";
+import { createScopedRepository } from "../../lib/scoped-repository.js";
 
 /**
  * Cross-workspace access test suite — Phase 5 exit criterion.

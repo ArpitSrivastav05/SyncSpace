@@ -61,3 +61,10 @@ export class GoneError extends AppError {
     super(message, 410);
   }
 }
+
+/** 429 — rate limit exceeded (retryable after backoff). */
+export class TooManyRequestsError extends AppError {
+  constructor(message = "Too many requests — please try again later") {
+    super(message, 429);
+  }
+}
